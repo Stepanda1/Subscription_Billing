@@ -1,6 +1,20 @@
-@Subscription___Billing_HostAddress = http://localhost:5265
+@host = http://localhost:8080
 
-GET {{Subscription___Billing_HostAddress}}/weatherforecast/
-Accept: application/json
+### Create a user; substitute the returned id below
+POST {{host}}/api/users
+Content-Type: application/json
 
-###
+{"name":"Stepan","email":"stepan@example.com"}
+
+### Create subscription; retry with the same key and body
+POST {{host}}/api/subscriptions/create
+Content-Type: application/json
+Idempotency-Key: 75be42df-1323-48c2-a317-55bb64445a1b
+
+{"userId":1,"plan":"basic"}
+
+### Current state
+GET {{host}}/api/subscriptions/1
+
+### Readiness
+GET {{host}}/health/ready

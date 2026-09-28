@@ -5,6 +5,10 @@ VisualStudioVersion = 17.11.35222.181
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Subscription & Billing", "Subscription & Billing\Subscription & Billing.csproj", "{355B9D45-5658-43C0-B86D-5135298F19E9}"
 EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{4127394C-64CD-400E-9F55-570D4DE21232}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Billing.Tests", "tests\Billing.Tests\Billing.Tests.csproj", "{321D0816-D5EA-4EAC-B948-169278FD8EC1}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,11 +19,18 @@ Global
 		{355B9D45-5658-43C0-B86D-5135298F19E9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{355B9D45-5658-43C0-B86D-5135298F19E9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{355B9D45-5658-43C0-B86D-5135298F19E9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{321D0816-D5EA-4EAC-B948-169278FD8EC1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{321D0816-D5EA-4EAC-B948-169278FD8EC1}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{321D0816-D5EA-4EAC-B948-169278FD8EC1}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{321D0816-D5EA-4EAC-B948-169278FD8EC1}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ExtensibilityGlobals) = postSolution
 		SolutionGuid = {A288BAF6-7662-485E-AB6E-A4FCF8F7AA78}
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{321D0816-D5EA-4EAC-B948-169278FD8EC1} = {4127394C-64CD-400E-9F55-570D4DE21232}
 	EndGlobalSection
 EndGlobal

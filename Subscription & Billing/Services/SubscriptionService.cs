@@ -1,85 +1,55 @@
-﻿using MassTransit;
+using System.Security.Cryptography;
+using System.Text;
+using System.Text.Json;
+using MassTransit;
 using Microsoft.EntityFrameworkCore;
 using Subscription_Backend.Dtos;
 using Subscription_Backend.Messages;
 using Subscription_Backend.Models;
-using System.Text.Json;
 
 namespace Subscription_Backend.Services;
 
-public class SubscriptionService
+public sealed class SubscriptionService(AppDbContext db, IPublishEndpoint publisher,
+    ILogger<SubscriptionService> logger)
 {
-    private readonly AppDbContext _db;
-    private readonly IPublishEndpoint _publishEndpoint;
-
-    public SubscriptionService(AppDbContext db, IPublishEndpoint publishEndpoint)
+    public async Task<SubscriptionResponse> CreateSubscriptionAsync(
+        CreateSubscriptionRequest request, Guid key, CancellationToken ct)
     {
-        _db = db;
-        _publishEndpoint = publishEndpoint;
-    }
-
-    public async Task<Subscription> CreateSubscriptionAsync(CreateSubscriptionRequest request, Guid idempotencyKey)
-    {
-        var existing = await _db.IdempotencyRecords
-            .FirstOrDefaultAsync(x =>
-                x.Key == idempotencyKey &&
-                x.Endpoint == "POST /api/subscriptions/create");
-
-        if (existing != null)
+        var amount = PlanCatalog.Price(request.Plan);
+        var hash = Convert.ToHexString(SHA256.HashData(
+            Encoding.UTF8.GetBytes($"v1:{request.UserId}:{request.Plan}")));
+        await using var tx = await db.Database.BeginTransactionAsync(ct);
+        // Works across replicas. Hash collisions only serialize unrelated requests.
+        var lockId = BitConverter.ToInt64(SHA256.HashData(key.ToByteArray()), 0);
+        await db.Database.ExecuteSqlInterpolatedAsync($"SELECT pg_advisory_xact_lock({lockId})", ct);
+        var existing = await db.IdempotencyRecords.AsNoTracking().SingleOrDefaultAsync(x => x.Key == key, ct);
+        if (existing is not null)
         {
-            return JsonSerializer.Deserialize<Subscription>(existing.Response)!;
+            if (existing.RequestHash != hash)
+                throw new BillingException(409, "Idempotency key was used with a different request.");
+            return JsonSerializer.Deserialize<SubscriptionResponse>(existing.Response)!;
         }
+        if (!await db.Users.AnyAsync(x => x.Id == request.UserId, ct))
+            throw new BillingException(404, "User not found.");
 
-        var strategy = _db.Database.CreateExecutionStrategy();
-
-        return await strategy.ExecuteAsync(async () =>
+        var subscription = new Subscription { UserId = request.UserId, Plan = request.Plan };
+        db.Subscriptions.Add(subscription);
+        db.Payments.Add(new Payment { Subscription = subscription, Amount = amount });
+        await db.SaveChangesAsync(ct);
+        var response = new SubscriptionResponse(subscription.Id, subscription.UserId, subscription.Plan, false);
+        db.IdempotencyRecords.Add(new IdempotencyRecord
         {
-            await using var tx = await _db.Database.BeginTransactionAsync();
-
-            try
-            {
-                var user = await _db.Users.FindAsync(request.UserId);
-                if (user == null)
-                    throw new Exception("User not found");
-
-                var subscription = new Subscription
-                {
-                    UserId = user.Id,
-                    Plan = request.Plan,
-                    IsActive = false
-                };
-
-                _db.Subscriptions.Add(subscription);
-                await _db.SaveChangesAsync();
-
-                _db.Payments.Add(new Payment
-                {
-                    SubscriptionId = subscription.Id,
-                    Amount = request.Amount
-                });
-
-                await _db.SaveChangesAsync();
-
-                _db.IdempotencyRecords.Add(new IdempotencyRecord
-                {
-                    Key = idempotencyKey,
-                    Endpoint = "POST /api/subscriptions/create",
-                    Response = JsonSerializer.Serialize(subscription),
-                    StatusCode = 200,
-                    CreatedAt = DateTime.UtcNow
-                });
-
-                await _db.SaveChangesAsync();
-
-                await tx.CommitAsync();
-
-                return subscription;
-            }
-            catch
-            {
-                await tx.RollbackAsync();
-                throw;
-            }
+            Key = key, RequestHash = hash, Response = JsonSerializer.Serialize(response), CreatedAt = DateTime.UtcNow
         });
+        // Scoped publisher is intercepted by the EF bus outbox.
+        // Payment, subscription, response and event commit or roll back together.
+        await publisher.Publish(new SubscriptionPaidEvent
+        {
+            SubscriptionId = subscription.Id, Amount = amount, PaidAt = DateTime.UtcNow
+        }, ct);
+        await db.SaveChangesAsync(ct);
+        await tx.CommitAsync(ct);
+        logger.LogInformation("Payment recorded for {SubscriptionId}, key {IdempotencyKey}", subscription.Id, key);
+        return response;
     }
 }

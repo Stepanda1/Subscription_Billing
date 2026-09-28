@@ -1,0 +1,75 @@
+name: subscription-billing
+x-runtime: &runtime
+  build: .
+  environment: &environment
+    ConnectionStrings__DefaultConnection: Host=postgres;Database=billing;Username=billing;Password=${POSTGRES_PASSWORD:-local-billing-only}
+    RabbitMq__Host: rabbitmq
+    RabbitMq__Username: billing
+    RabbitMq__Password: ${RABBITMQ_PASSWORD:-local-broker-only}
+    ASPNETCORE_HTTP_PORTS: '8080'
+  restart: unless-stopped
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: billing
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-billing-only}
+      POSTGRES_DB: billing
+    volumes: [postgres-data:/var/lib/postgresql/data]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U billing -d billing']
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: billing
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-local-broker-only}
+    volumes: [rabbitmq-data:/var/lib/rabbitmq]
+    ports: ['127.0.0.1:15672:15672']
+    healthcheck:
+      test: [CMD, rabbitmq-diagnostics, -q, ping]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+  migrate:
+    <<: *runtime
+    environment:
+      <<: *environment
+      ServiceRole: Migrate
+    restart: 'no'
+    depends_on:
+      postgres: {condition: service_healthy}
+  api:
+    <<: *runtime
+    environment:
+      <<: *environment
+      ServiceRole: Api
+    ports: ['127.0.0.1:8080:8080']
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      rabbitmq: {condition: service_healthy}
+  worker:
+    <<: *runtime
+    environment:
+      <<: *environment
+      ServiceRole: Worker
+    depends_on:
+      migrate: {condition: service_completed_successfully}
+      rabbitmq: {condition: service_healthy}
+  tests:
+    profiles: [test]
+    build: {context: ., target: test}
+    environment:
+      TEST_DATABASE: Host=postgres;Database=billing_tests;Username=billing;Password=${POSTGRES_PASSWORD:-local-billing-only}
+      TEST_RABBIT_HOST: rabbitmq
+      TEST_RABBIT_PASSWORD: ${RABBITMQ_PASSWORD:-local-broker-only}
+    depends_on:
+      postgres: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+
+volumes:
+  postgres-data:
+  rabbitmq-data:
