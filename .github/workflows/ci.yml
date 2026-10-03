@@ -1,0 +1,23 @@
+name: billing-ci
+on: [push, pull_request]
+permissions:
+  contents: read
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start full stack and apply migrations
+        run: docker compose up --build -d
+      - name: Test against PostgreSQL and RabbitMQ
+        run: docker compose --profile test run --build --rm tests
+      - name: Smoke and outage recovery
+        shell: pwsh
+        run: ./scripts/verify.ps1
+      - name: Logs
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Cleanup
+        if: always()
+        run: docker compose down -v
