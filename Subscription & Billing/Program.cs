@@ -93,7 +93,10 @@ app.UseRateLimiter();
 app.MapHealthChecks("/health/live", new HealthCheckOptions { Predicate = _ => false });
 app.MapHealthChecks("/health/ready", new HealthCheckOptions
 {
-    Predicate = check => check.Tags.Contains("ready") || check.Tags.Contains("masstransit")
+    // API can durably accept writes through the bus outbox while RabbitMQ is down.
+    // Workers need the transport to make progress, so include it for those roles.
+    Predicate = check => check.Name == "postgres" ||
+        (role is "Worker" or "All" && check.Tags.Contains("masstransit"))
 });
 if (role is "Api" or "All")
 {

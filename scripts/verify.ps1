@@ -40,6 +40,8 @@ if ($repeat.Content -ne $first.Content) { throw 'Replay response changed.' }
 # A live outage verifies durable storage, process restart and eventual delivery.
 try {
     Docker-Step @('compose', 'stop', 'rabbitmq')
+    $apiReady = Invoke-WebRequest "$BaseUrl/health/ready" -TimeoutSec 5
+    if ($apiReady.StatusCode -ne 200) { throw 'API should remain ready with RabbitMQ stopped.' }
     $headers['Idempotency-Key'] = [guid]::NewGuid().ToString()
     $pending = Invoke-RestMethod "$BaseUrl/api/subscriptions/create" -Method Post -ContentType 'application/json' -Headers $headers -Body $body -TimeoutSec 15
     if ($pending.isActive) { throw 'Subscription unexpectedly activated with broker stopped.' }
@@ -50,6 +52,8 @@ try {
         try {
             $replay = Invoke-RestMethod "$BaseUrl/api/subscriptions/create" -Method Post -ContentType 'application/json' -Headers $headers -Body $body -TimeoutSec 3
             if ($replay.id -ne $pending.id) { throw 'Replay after process restart returned another ID.' }
+            $apiReady = Invoke-WebRequest "$BaseUrl/health/ready" -TimeoutSec 3
+            if ($apiReady.StatusCode -ne 200) { throw 'Restarted API is unready while only RabbitMQ is down.' }
             $restarted = $true
             break
         } catch { Start-Sleep -Milliseconds 300 }

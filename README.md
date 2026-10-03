@@ -40,6 +40,7 @@ flowchart LR
   prefetch 32, 8 обработчиков на worker; индекс и cursor pagination с лимитом 100.
 - **Эксплуатация:** отдельные API/worker, миграции перед запуском, контейнер без root,
   JSON-логи, `traceId` в ProblemDetails, `/health/live` и `/health/ready`.
+  API остаётся готовым при сбое брокера, пока доступна БД; worker требует брокер.
 
 ## Попробовать
 
