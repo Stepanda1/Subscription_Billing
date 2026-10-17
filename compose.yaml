@@ -12,6 +12,7 @@ x-runtime: &runtime
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: billing
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local-billing-only}
@@ -24,6 +25,7 @@ services:
       retries: 30
   rabbitmq:
     image: rabbitmq:4-management-alpine
+    restart: unless-stopped
     environment:
       RABBITMQ_DEFAULT_USER: billing
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-local-broker-only}
@@ -50,7 +52,6 @@ services:
     ports: ['127.0.0.1:8080:8080']
     depends_on:
       migrate: {condition: service_completed_successfully}
-      rabbitmq: {condition: service_healthy}
   worker:
     <<: *runtime
     environment:

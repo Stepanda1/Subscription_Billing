@@ -12,7 +12,7 @@ using Xunit;
 
 namespace Billing.Tests;
 
-public sealed class BillingTests(BillingFixture fixture) : IClassFixture<BillingFixture>
+public sealed partial class BillingTests(BillingFixture fixture) : IClassFixture<BillingFixture>
 {
     private HttpClient Client => fixture.Client;
 
@@ -55,6 +55,21 @@ public sealed class BillingTests(BillingFixture fixture) : IClassFixture<Billing
         await WaitActive(subscription.Id);
         var amount = await fixture.WithDb(db => db.Payments.Where(x => x.SubscriptionId == subscription.Id).Select(x => x.Amount).SingleAsync());
         Assert.Equal(1990m, amount);
+    }
+
+    [Fact]
+    public async Task Published_payment_timestamp_matches_the_committed_payment()
+    {
+        var user = await User();
+        var response = await Create(user.Id, Guid.NewGuid());
+        Assert.Equal(HttpStatusCode.Accepted, response.StatusCode);
+        var subscription = (await response.Content.ReadFromJsonAsync<SubscriptionResponse>())!;
+        await WaitActive(subscription.Id);
+        var paidAt = await fixture.WithDb(db => db.Payments.Where(x => x.SubscriptionId == subscription.Id)
+            .Select(x => x.PaidAt).SingleAsync());
+        Assert.True(fixture.Observations.Events.TryGetValue(subscription.Id, out var delivered));
+        Assert.Equal(paidAt, delivered!.PaidAt);
+        Assert.Equal(DateTimeKind.Utc, delivered.PaidAt.Kind);
     }
 
     [Fact]

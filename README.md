@@ -65,8 +65,11 @@ xUnit + WebApplicationFactory проверяют настоящий PostgreSQL �
 Тесты используют отдельную БД `billing_tests` и отдельный exchange/queue.
 
 `pwsh ./scripts/verify.ps1` проверяет полный стек, отключает брокер,
-перезапускает API и проверяет доставку сохранённого события после восстановления.
-GitHub Actions запускает обе проверки. [Архитектурные решения и масштабирование](docs/architecture.md).
+перезапускает API, проверяет восстановление outbox и готовность при отказе БД.
+На свежих volumes `pwsh ./scripts/verify-cold-start.ps1` проверяет запуск API без
+брокера и сохранность события до первого worker. Скрипты останавливают локальные
+контейнеры. GitHub Actions запускает все проверки, включая контракты Compose.
+[Архитектурные решения](docs/architecture.md) · [Аудит и исправления](docs/audit-report.md).
 
 Мини-бенчмарк записи (Python 3, без пакетов):
 `python scripts/load.py --requests 200 --concurrency 20`.

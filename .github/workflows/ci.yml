@@ -8,6 +8,11 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      - name: Verify Compose startup and restart contracts
+        run: python -m unittest discover -s tests -p 'test_*.py'
+      - name: Cold start and durable queue before first worker
+        shell: pwsh
+        run: ./scripts/verify-cold-start.ps1
       - name: Start full stack and apply migrations
         run: docker compose up --build -d
       - name: Test against PostgreSQL and RabbitMQ
