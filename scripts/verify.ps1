@@ -43,23 +43,35 @@ try {
     $apiReady = Invoke-WebRequest "$BaseUrl/health/ready" -TimeoutSec 5
     if ($apiReady.StatusCode -ne 200) { throw 'API should remain ready with RabbitMQ stopped.' }
     $headers['Idempotency-Key'] = [guid]::NewGuid().ToString()
-    $pending = Invoke-RestMethod "$BaseUrl/api/subscriptions/create" -Method Post -ContentType 'application/json' -Headers $headers -Body $body -TimeoutSec 15
+    $pendingResponse = Invoke-WebRequest "$BaseUrl/api/subscriptions/create" -Method Post -ContentType 'application/json' -Headers $headers -Body $body -TimeoutSec 15
+    $pending = $pendingResponse.Content | ConvertFrom-Json
     if ($pending.isActive) { throw 'Subscription unexpectedly activated with broker stopped.' }
     Docker-Step @('compose', 'restart', 'api')
     $deadline = (Get-Date).AddSeconds(45)
     $restarted = $false
     while ((Get-Date) -lt $deadline) {
         try {
-            $replay = Invoke-RestMethod "$BaseUrl/api/subscriptions/create" -Method Post -ContentType 'application/json' -Headers $headers -Body $body -TimeoutSec 3
-            if ($replay.id -ne $pending.id) { throw 'Replay after process restart returned another ID.' }
+            $replay = Invoke-WebRequest "$BaseUrl/api/subscriptions/create" -Method Post -ContentType 'application/json' -Headers $headers -Body $body -TimeoutSec 3
             $apiReady = Invoke-WebRequest "$BaseUrl/health/ready" -TimeoutSec 3
-            if ($apiReady.StatusCode -ne 200) { throw 'Restarted API is unready while only RabbitMQ is down.' }
-            $restarted = $true
-            break
-        } catch { Start-Sleep -Milliseconds 300 }
+        } catch { Start-Sleep -Milliseconds 300; continue }
+        # Assertions stay outside the retry catch: an incorrect response is a failure,
+        # not a transient connection error that a later response can hide.
+        if ($replay.Content -ne $pendingResponse.Content) { throw 'Replay response changed after API restart.' }
+        if ($apiReady.StatusCode -ne 200) { throw 'Restarted API is unready while only RabbitMQ is down.' }
+        $restarted = $true
+        break
     }
     if (-not $restarted) { throw 'API did not accept replay while broker was unavailable.' }
 } finally { Docker-Step @('compose', 'start', 'rabbitmq') }
 Wait-Ready
 Wait-Active $pending.id
-Write-Output 'VERIFIED: HTTP workflow, exact replay, broker outage, API restart, outbox recovery.'
+try {
+    Docker-Step @('compose', 'stop', 'postgres')
+    # Allow the configured Npgsql connection timeout (15s by default) to finish.
+    $ready = Invoke-WebRequest "$BaseUrl/health/ready" -SkipHttpErrorCheck -TimeoutSec 30
+    if ($ready.StatusCode -ne 503) { throw 'API must become unready when PostgreSQL is unavailable.' }
+    $live = Invoke-WebRequest "$BaseUrl/health/live" -TimeoutSec 3
+    if ($live.StatusCode -ne 200) { throw 'Database outage must not fail process liveness.' }
+} finally { Docker-Step @('compose', 'start', 'postgres') }
+Wait-Ready
+Write-Output 'VERIFIED: HTTP workflow, exact replay, broker outage, API restart, outbox recovery, DB readiness/liveness.'

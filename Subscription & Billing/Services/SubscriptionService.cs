@@ -33,8 +33,12 @@ public sealed class SubscriptionService(AppDbContext db, IPublishEndpoint publis
             throw new BillingException(404, "User not found.");
 
         var subscription = new Subscription { UserId = request.UserId, Plan = request.Plan };
+        // PostgreSQL timestamps have microsecond precision. Use the same persisted
+        // business timestamp in the event, rather than the later publishing time.
+        var now = DateTime.UtcNow;
+        var paidAt = new DateTime(now.Ticks - now.Ticks % TimeSpan.TicksPerMicrosecond, DateTimeKind.Utc);
         db.Subscriptions.Add(subscription);
-        db.Payments.Add(new Payment { Subscription = subscription, Amount = amount });
+        db.Payments.Add(new Payment { Subscription = subscription, Amount = amount, PaidAt = paidAt });
         await db.SaveChangesAsync(ct);
         var response = new SubscriptionResponse(subscription.Id, subscription.UserId, subscription.Plan, false);
         db.IdempotencyRecords.Add(new IdempotencyRecord
@@ -45,7 +49,7 @@ public sealed class SubscriptionService(AppDbContext db, IPublishEndpoint publis
         // Payment, subscription, response and event commit or roll back together.
         await publisher.Publish(new SubscriptionPaidEvent
         {
-            SubscriptionId = subscription.Id, Amount = amount, PaidAt = DateTime.UtcNow
+            SubscriptionId = subscription.Id, Amount = amount, PaidAt = paidAt
         }, ct);
         await db.SaveChangesAsync(ct);
         await tx.CommitAsync(ct);

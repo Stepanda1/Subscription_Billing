@@ -74,7 +74,14 @@ builder.Services.AddMassTransit(x =>
         // Declare the durable destination even when API starts before a worker.
         var queue = builder.Configuration["RabbitMq:ActivationQueue"] ?? "subscription-activation";
         cfg.Message<Subscription_Backend.Messages.SubscriptionPaidEvent>(m => m.SetEntityName(queue + "-paid"));
-        cfg.Publish<Subscription_Backend.Messages.SubscriptionPaidEvent>(p => p.BindQueue(queue, queue));
+        // BindQueue binds its first argument directly to the queue; it does not
+        // connect a separate exchange to the message exchange.
+        cfg.Publish<Subscription_Backend.Messages.SubscriptionPaidEvent>(p => p.BindQueue(queue + "-paid", queue));
+        // EF outbox delivery replays through GetSendEndpoint(destination), which
+        // does not deploy publish bindings. Declare them before the bus is healthy
+        // so the first event cannot disappear when no worker has ever started.
+        cfg.AutoStart = true;
+        cfg.DeployPublishTopology = true;
         if (role is "Worker" or "All")
             cfg.ReceiveEndpoint(builder.Configuration["RabbitMq:ActivationQueue"] ?? "subscription-activation", e =>
             {
